@@ -17,15 +17,17 @@ import (
 // emailBody is the template used to render the notification email.
 const emailBody = `
 <h2>网站表单提交</h2>
-<p><strong>称呼：</strong>{{.Name}}</p>
-<p><strong>邮箱：</strong>{{.Email}}</p>
+{{if .Source}}<p><strong>来源：</strong>{{.Source}}</p>
+{{end}}{{if .Name}}<p><strong>称呼：</strong>{{.Name}}</p>
+{{end}}<p><strong>邮箱：</strong>{{.Email}}</p>
 {{if .Subject}}<p><strong>主题：</strong>{{.Subject}}</p>
 {{end}}{{if .Platform}}<p><strong>平台：</strong>{{.Platform}}</p>
-{{end}}<p><strong>内容：</strong></p>
+{{end}}{{if .Message}}<p><strong>内容：</strong></p>
 <p>{{.Message}}</p>
-`
+{{end}}`
 
 type formData struct {
+	Source   string
 	Name     string
 	Email    string
 	Subject  string
@@ -160,14 +162,15 @@ func handleForm(cfg smtpConfig) http.HandlerFunc {
 		}
 
 		data := formData{
-			Email:    r.FormValue("email"),
-			Name:     r.FormValue("name"),
-			Subject:  r.FormValue("subject"),
+			Source:   strings.TrimSpace(r.FormValue("source")),
+			Email:    strings.TrimSpace(r.FormValue("email")),
+			Name:     strings.TrimSpace(r.FormValue("name")),
+			Subject:  strings.TrimSpace(r.FormValue("subject")),
 			Platform: platformLabel(r.FormValue("platform")),
-			Message:  r.FormValue("message"),
+			Message:  strings.TrimSpace(r.FormValue("message")),
 		}
 
-		if data.Email == "" || data.Name == "" || data.Message == "" {
+		if data.Email == "" {
 			http.Error(w, "missing required form fields", http.StatusBadRequest)
 			return
 		}
