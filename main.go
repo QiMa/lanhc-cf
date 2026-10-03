@@ -19,9 +19,9 @@ const emailBody = `
 <h2>网站表单提交</h2>
 <p><strong>称呼：</strong>{{.Name}}</p>
 <p><strong>邮箱：</strong>{{.Email}}</p>
-<p><strong>主题：</strong>{{.Subject}}</p>
-<p><strong>平台：</strong>{{.Platform}}</p>
-<p><strong>内容：</strong></p>
+{{if .Subject}}<p><strong>主题：</strong>{{.Subject}}</p>
+{{end}}{{if .Platform}}<p><strong>平台：</strong>{{.Platform}}</p>
+{{end}}<p><strong>内容：</strong></p>
 <p>{{.Message}}</p>
 `
 
@@ -31,6 +31,23 @@ type formData struct {
 	Subject  string
 	Platform string
 	Message  string
+}
+
+var platformLabels = map[string]string{
+	"windows": "Windows",
+	"macos":   "macOS",
+	"linux":   "Linux",
+	"all":     "全部平台",
+}
+
+func platformLabel(v string) string {
+	if v == "" {
+		return ""
+	}
+	if label, ok := platformLabels[strings.ToLower(v)]; ok {
+		return label
+	}
+	return v
 }
 
 type smtpConfig struct {
@@ -146,7 +163,7 @@ func handleForm(cfg smtpConfig) http.HandlerFunc {
 			Email:    r.FormValue("email"),
 			Name:     r.FormValue("name"),
 			Subject:  r.FormValue("subject"),
-			Platform: r.FormValue("platform"),
+			Platform: platformLabel(r.FormValue("platform")),
 			Message:  r.FormValue("message"),
 		}
 
