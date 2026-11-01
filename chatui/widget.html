@@ -18,7 +18,14 @@
   .msg{max-width:84%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
   .msg.visitor{align-self:flex-end;background:var(--accent);color:#fff}
   .msg.agent{align-self:flex-start;background:#fff;border:1px solid var(--line)}
+  .msg.ai{align-self:flex-start;background:#fff;border:1px solid var(--line)}
+  .msg.ai .tag{display:block;font-size:11px;color:#94a3b8;margin-bottom:2px}
   .msg.system{align-self:center;background:#eef2f7;color:#475569;font-size:12.5px;max-width:92%;text-align:center}
+  .typing{display:none;gap:4px;align-items:center;padding:10px 14px;margin:0 14px 10px;background:#fff;border:1px solid var(--line);border-radius:12px;align-self:flex-start}
+  .typing.on{display:flex}
+  .typing i{width:6px;height:6px;border-radius:50%;background:#94a3b8;animation:lb 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes lb{0%,60%,100%{opacity:.3}30%{opacity:1}}
   form.foot{border-top:1px solid var(--line);background:#fff;padding:10px;display:flex;gap:8px;align-items:flex-end;flex:none}
   textarea{flex:1;resize:none;height:44px;max-height:120px;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;outline:none}
   textarea:focus{border-color:var(--accent)}
@@ -35,6 +42,7 @@
 <body>
 <header><span class="dot"></span><h1>在线客服</h1><small class="status">连接中…</small></header>
 <div class="log" id="log" role="log" aria-live="polite"></div>
+<div class="typing" id="typing" aria-hidden="true"><i></i><i></i><i></i></div>
 <form class="capture" id="capture">
   <p>留下邮箱，客服回复后我们可以邮件通知您。</p>
   <input name="name" type="text" placeholder="称呼（可选）" maxlength="40">
@@ -74,8 +82,17 @@
     lastID = m.id;
     localStorage.setItem(sinceKey, String(lastID));
     var div = document.createElement("div");
-    div.className = "msg " + (m.role === "visitor" ? "visitor" : m.role === "agent" ? "agent" : "system");
-    div.textContent = m.text;
+    var role = m.role === "visitor" ? "visitor" : m.role === "agent" ? "agent" : m.role === "ai" ? "ai" : "system";
+    div.className = "msg " + role;
+    if (role === "ai") {
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "智能助手";
+      div.appendChild(tag);
+      div.appendChild(document.createTextNode(m.text));
+    } else {
+      div.textContent = m.text;
+    }
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   }
@@ -89,12 +106,23 @@
     }
   }
 
+  function typing(on, needHuman) {
+    var el = document.getElementById("typing");
+    el.classList.toggle("on", !!on);
+    if (on) log.scrollTop = log.scrollHeight;
+    if (needHuman) {
+      document.querySelector("header .dot").className = "dot";
+      document.querySelector(".status").textContent = "待人工接入";
+    }
+  }
+
   function ensure() {
     return api("/chat/api/session", { method: "POST", body: { token: token, page: location.href } })
       .then(function (d) {
         token = d.token;
         localStorage.setItem(tokenKey, token);
         online(d.agent_online);
+        typing(d.ai_typing, d.need_human);
         (d.messages || []).forEach(append);
       });
   }
@@ -102,7 +130,7 @@
   function poll() {
     if (!token) return ensure().catch(function () {});
     api("/chat/api/poll?token=" + encodeURIComponent(token) + "&since=" + lastID)
-      .then(function (d) { online(d.agent_online); (d.messages || []).forEach(append); })
+      .then(function (d) { online(d.agent_online); typing(d.ai_typing, d.need_human); (d.messages || []).forEach(append); })
       .catch(function (err) {
         if (String(err.message) === "session not found") {
           token = ""; lastID = 0;
@@ -119,7 +147,7 @@
     if (!text) return;
     ensure()
       .then(function () { return api("/chat/api/message", { method: "POST", body: { token: token, text: text } }); })
-      .then(function (d) { box.value = ""; append(d.message); online(d.agent_online); })
+      .then(function (d) { box.value = ""; append(d.message); online(d.agent_online); typing(true); })
       .catch(function () { box.value = text; });
   });
 

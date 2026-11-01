@@ -23,17 +23,22 @@ import (
 //go:embed chatui
 var chatUIFS embed.FS
 
+//go:embed chatui/kb.md
+var aiKnowledgeBase string
+
 const (
 	adminCookie   = "cf_chat_admin"
 	adminTTL      = 12 * time.Hour
 	agentOnline   = 2 * time.Minute
 	maxTextLength = 2000
+	maxAIReply    = 6
 )
 
 // ChatService wires the visitor widget, the agent console and the store.
 type ChatService struct {
 	store       *ChatStore
 	smtp        smtpConfig
+	ai          *aiClient
 	origins     map[string]bool
 	adminPass   string
 	cookieKey   []byte
@@ -52,6 +57,7 @@ func newChatService(store *ChatStore, smtp smtpConfig) *ChatService {
 	s := &ChatService{
 		store:     store,
 		smtp:      smtp,
+		ai:        newAIClient(aiKnowledgeBase),
 		origins:   map[string]bool{},
 		adminPass: env("CHAT_ADMIN_PASSWORD", ""),
 		cookieKey: []byte(env("CHAT_COOKIE_KEY", "")),
@@ -224,6 +230,8 @@ func (s *ChatService) respondSession(w http.ResponseWriter, sess ChatSession, si
 		"token":        sess.ID,
 		"closed":       sess.Closed,
 		"agent_online": s.agentIsOnline(),
+		"ai_typing":    sess.AITyping,
+		"need_human":   sess.NeedHuman,
 		"server_time":  time.Now().Unix(),
 		"messages":     s.store.MessagesSince(sess.ID, since),
 	})
@@ -249,6 +257,8 @@ func (s *ChatService) handlePoll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"closed":       sess.Closed,
 		"agent_online": s.agentIsOnline(),
+		"ai_typing":    sess.AITyping,
+		"need_human":   sess.NeedHuman,
 		"server_time":  time.Now().Unix(),
 		"messages":     s.store.MessagesSince(token, atoiOr(r.URL.Query().Get("since"), 0)),
 	})
@@ -295,7 +305,58 @@ func (s *ChatService) handleVisitorMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.maybeNotify(req.Token, text)
+	s.startAIReply(req.Token, text)
 	writeJSON(w, http.StatusOK, map[string]any{"message": msg, "agent_online": s.agentIsOnline()})
+}
+
+// startAIReply runs the automated pre-sales answer in the background. It is a
+// fallback only: an online agent always wins, and anything commercial is handed
+// to a human instead of being answered by the model.
+func (s *ChatService) startAIReply(sessionID, visitorText string) {
+	if !s.ai.enabled() || s.agentIsOnline() {
+		return
+	}
+	if needsHandoff(visitorText) {
+		s.handOffToHuman(sessionID, "这个问题需要商务同事确认，我先把您转给人工客服，请稍候。")
+		return
+	}
+
+	sess, ok := s.store.Session(sessionID)
+	if !ok || sess.AIReplies >= maxAIReply {
+		return
+	}
+	// Once a conversation has been handed to a human, the bot stays out of it
+	// until an agent actually replies (which clears the flag).
+	if sess.NeedHuman {
+		return
+	}
+	s.store.UpdateSession(sessionID, func(sess *ChatSession) { sess.AITyping = true })
+
+	go func() {
+		defer s.store.UpdateSession(sessionID, func(sess *ChatSession) { sess.AITyping = false })
+
+		history := s.store.MessagesSince(sessionID, 0)
+		answer, err := s.ai.reply(history)
+		if err != nil {
+			log.Println("chat ai: reply failed:", err)
+			return
+		}
+		// A human may have picked the conversation up while the model was working.
+		if s.agentIsOnline() {
+			return
+		}
+		if answer == "" || strings.Contains(answer, handoffMarker) {
+			s.handOffToHuman(sessionID, "这个问题我请人工客服来回答，请稍候。")
+			return
+		}
+		s.store.UpdateSession(sessionID, func(sess *ChatSession) { sess.AIReplies++ })
+		s.store.AddMessage(sessionID, "ai", "AI 助手", answer)
+	}()
+}
+
+func (s *ChatService) handOffToHuman(sessionID, notice string) {
+	s.store.UpdateSession(sessionID, func(sess *ChatSession) { sess.NeedHuman = true })
+	s.store.AddMessage(sessionID, "system", "", notice)
 }
 
 func (s *ChatService) maybeNotify(sessionID, text string) {
@@ -519,6 +580,7 @@ func (s *ChatService) handleAdminReply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
+	s.store.UpdateSession(req.ID, func(sess *ChatSession) { sess.NeedHuman = false })
 	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
 }
 

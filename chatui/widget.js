@@ -41,7 +41,14 @@
     ".msg{max-width:82%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}",
     ".msg.visitor{align-self:flex-end;background:" + accent + ";color:#fff;border-bottom-right-radius:4px}",
     ".msg.agent{align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-bottom-left-radius:4px}",
+    ".msg.ai{align-self:flex-start;background:#fff;border:1px solid #e2e8f0;border-bottom-left-radius:4px}",
+    ".msg.ai .tag{display:block;font-size:11px;color:#94a3b8;margin-bottom:2px}",
     ".msg.system{align-self:center;background:#eef2f7;color:#475569;font-size:12.5px;max-width:92%;text-align:center;border-radius:10px}",
+    ".typing{align-self:flex-start;display:none;gap:4px;padding:10px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}",
+    ".typing.on{display:flex}",
+    ".typing i{width:6px;height:6px;border-radius:50%;background:#94a3b8;animation:lb 1.2s infinite}",
+    ".typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}",
+    "@keyframes lb{0%,60%,100%{opacity:.3}30%{opacity:1}}",
     ".meta{align-self:flex-start;font-size:11px;color:#64748b;margin:-6px 0 0 4px}",
     ".foot{border-top:1px solid #e2e8f0;padding:10px;display:flex;gap:8px;align-items:flex-end;background:#fff}",
     ".foot textarea{flex:1;resize:none;height:42px;max-height:110px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;",
@@ -64,6 +71,7 @@
     "<header class='head'><span class='dot'></span><h3>" + title + "</h3><span class='status'></span>",
     "<button class='close' type='button' aria-label='关闭'>×</button></header>",
     "<div class='log' role='log' aria-live='polite'></div>",
+    "<div class='typing' aria-hidden='true'><i></i><i></i><i></i></div>",
     "<form class='capture'>",
     "<p>留下邮箱，客服回复后我们可以邮件通知您。</p>",
     "<input name='name' type='text' placeholder='称呼（可选）' maxlength='40'>",
@@ -93,6 +101,7 @@
   var opened = false;
   var agentOnline = false;
   var captureAsked = false;
+  var typingEl = null;
 
   function api(path, opts) {
     opts = opts || {};
@@ -115,8 +124,17 @@
     lastID = msg.id;
     localStorage.setItem(sinceKey, String(lastID));
     var div = document.createElement("div");
-    div.className = "msg " + (msg.role === "visitor" ? "visitor" : msg.role === "agent" ? "agent" : "system");
-    div.textContent = msg.text;
+    var role = msg.role === "visitor" ? "visitor" : msg.role === "agent" ? "agent" : msg.role === "ai" ? "ai" : "system";
+    div.className = "msg " + role;
+    if (role === "ai") {
+      var tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "智能助手";
+      div.appendChild(tag);
+      div.appendChild(document.createTextNode(msg.text));
+    } else {
+      div.textContent = msg.text;
+    }
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   }
@@ -131,6 +149,17 @@
     statusText.textContent = agentOnline ? "客服在线" : "留言模式";
   }
 
+  function setTyping(on, needHuman) {
+    if (!typingEl) typingEl = root.querySelector(".typing");
+    if (!typingEl) return;
+    typingEl.classList.toggle("on", !!on);
+    if (on) log.scrollTop = log.scrollHeight;
+    if (needHuman) {
+      dot.className = "dot";
+      statusText.textContent = "待人工接入";
+    }
+  }
+
   function ensureSession() {
     return api("/chat/api/session", {
       method: "POST",
@@ -139,6 +168,7 @@
       token = data.token;
       localStorage.setItem(tokenKey, token);
       setOnline(data.agent_online);
+      setTyping(data.ai_typing, data.need_human);
       render(data.messages);
       return data;
     });
@@ -149,6 +179,7 @@
     api("/chat/api/poll?token=" + encodeURIComponent(token) + "&since=" + lastID)
       .then(function (data) {
         setOnline(data.agent_online);
+        setTyping(data.ai_typing, data.need_human);
         render(data.messages);
         if (!agentOnline && !captureAsked && !localStorage.getItem(tokenKey + ".email")) {
           captureAsked = true;
@@ -208,6 +239,7 @@
         textarea.value = "";
         append(data.message);
         setOnline(data.agent_online);
+        setTyping(true);
       })
       .catch(function () {
         textarea.value = text;

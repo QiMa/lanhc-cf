@@ -43,6 +43,9 @@ type ChatSession struct {
 	Name        string `json:"name,omitempty"`
 	Email       string `json:"email,omitempty"`
 	Closed      bool   `json:"closed,omitempty"`
+	AIReplies   int    `json:"ai_replies,omitempty"`
+	NeedHuman   bool   `json:"need_human,omitempty"`
+	AITyping    bool   `json:"ai_typing,omitempty"`
 }
 
 type chatRecord struct {
@@ -348,6 +351,19 @@ func (s *ChatStore) SetClosed(sessionID string, closed bool) bool {
 		return false
 	}
 	sess.Closed = closed
+	s.saveSessionLocked(sess)
+	return true
+}
+
+// UpdateSession applies fn to a session under the write lock and persists it.
+func (s *ChatStore) UpdateSession(sessionID string, fn func(*ChatSession)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false
+	}
+	fn(sess)
 	s.saveSessionLocked(sess)
 	return true
 }

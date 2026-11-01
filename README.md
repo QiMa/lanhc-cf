@@ -54,6 +54,30 @@
 | `CHAT_ADMIN_PASSWORD` | 空 | 客服工作台口令；留空则工作台禁用 |
 | `CHAT_COOKIE_KEY` | 随机 | 工作台 Cookie 签名密钥，固定值可在重启后保留登录态 |
 | `CHAT_ALLOWED_ORIGINS` | `https://lanhc.com https://www.lanhc.com http://localhost:1313` | 允许调用客服 API 的站点来源 |
+| `CHAT_AI_BASE_URL` | 空 | 模型网关地址，如 `http://airgap:8080`；留空则禁用 AI 兜底 |
+| `CHAT_AI_KEY` | 空 | AirGap 签发的 `ag-` 企业密钥 |
+| `CHAT_AI_MODEL` | `huayu-hermes-flash` | 兜底使用的模型 |
+
+## AI 兜底
+
+客服无人值守时，AI 先答售前问题；人工客服上线（工作台 2 分钟内有操作）即自动让位。
+
+- 知识库在 `chatui/kb.md`，随二进制内嵌；只允许依据其中事实作答。
+- 命中价格/报价/合同/付款/发票/采购/招标等关键词时**不调用模型**，直接转人工。
+- 模型若输出 `[[HANDOFF]]` 标记（自认无把握）同样转人工。
+- 会话 AI 回复上限 `maxAIReply = 6` 条，超限即静默等待人工。
+- 转人工时写入一条 `system` 消息并在会话上标记 `need_human`，工作台列表显示「待人工」。
+- 模型调用失败不影响访客，只是没有 AI 回复（`ai_typing` 会被清掉）。
+
+部署时 `lanhc-cf` 与 `airgap` 同在 `baizor-bridge` 网络，直接走容器名访问，不出公网：
+
+```yaml
+CHAT_AI_BASE_URL: "http://airgap:8080"
+CHAT_AI_KEY: "ag-..."
+```
+
+密钥由 AirGap 管理员接口签发（`POST /api/models/keys`，需 `AIRGAP_ADMIN_TOKEN`），
+标签建议写 `lanhc-webchat`，便于单独吊销。
 
 ## 构建
 
