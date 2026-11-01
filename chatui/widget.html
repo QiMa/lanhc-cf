@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>在线客服 · 清大华宇AI</title>
+<style>
+  :root{--accent:#2563eb;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;height:100%;font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:#f8fafc}
+  header{background:var(--accent);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;flex:none}
+  header h1{margin:0;font-size:15px;font-weight:600;flex:1}
+  header .dot{width:8px;height:8px;border-radius:50%;background:#94a3b8}
+  header .dot.on{background:#34d399}
+  header small{font-size:12px;opacity:.9}
+  .log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:84%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
+  .msg.visitor{align-self:flex-end;background:var(--accent);color:#fff}
+  .msg.agent{align-self:flex-start;background:#fff;border:1px solid var(--line)}
+  .msg.system{align-self:center;background:#eef2f7;color:#475569;font-size:12.5px;max-width:92%;text-align:center}
+  form.foot{border-top:1px solid var(--line);background:#fff;padding:10px;display:flex;gap:8px;align-items:flex-end;flex:none}
+  textarea{flex:1;resize:none;height:44px;max-height:120px;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;outline:none}
+  textarea:focus{border-color:var(--accent)}
+  .send{border:0;background:var(--accent);color:#fff;padding:0 18px;height:44px;border-radius:10px;cursor:pointer}
+  .send:disabled{opacity:.5}
+  form.capture{border-top:1px solid var(--line);background:#fff;padding:10px;display:none;gap:8px;flex-wrap:wrap;flex:none}
+  form.capture.show{display:flex}
+  form.capture p{margin:0 0 2px;font-size:12.5px;color:var(--muted);flex:1 0 100%}
+  form.capture input{flex:1 1 130px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;outline:none;min-width:0}
+  form.capture button{border:0;background:var(--ink);color:#fff;padding:9px 16px;border-radius:9px;cursor:pointer;font:inherit}
+  form.capture small{flex:1 0 100%;color:#16a34a;font-size:12px}
+</style>
+</head>
+<body>
+<header><span class="dot"></span><h1>在线客服</h1><small class="status">连接中…</small></header>
+<div class="log" id="log" role="log" aria-live="polite"></div>
+<form class="capture" id="capture">
+  <p>留下邮箱，客服回复后我们可以邮件通知您。</p>
+  <input name="name" type="text" placeholder="称呼（可选）" maxlength="40">
+  <input name="email" type="email" placeholder="you@company.com" required maxlength="120">
+  <button type="submit">提交</button><small></small>
+</form>
+<form class="foot" id="compose">
+  <textarea id="text" placeholder="请输入您的问题…" maxlength="2000" required></textarea>
+  <button class="send" type="submit">发送</button>
+</form>
+<script>
+(function () {
+  "use strict";
+  var tokenKey = "lanhc.chat.token", sinceKey = "lanhc.chat.since";
+  var log = document.getElementById("log");
+  var token = localStorage.getItem(tokenKey) || "";
+  var lastID = Number(localStorage.getItem(sinceKey) || 0) || 0;
+  var askedCapture = false;
+
+  function api(path, opts) {
+    opts = opts || {};
+    return fetch(path, {
+      method: opts.method || "GET",
+      headers: opts.body ? { "Content-Type": "application/json" } : undefined,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: "omit",
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error(data.error || res.status);
+        return data;
+      });
+    });
+  }
+
+  function append(m) {
+    if (!m || m.id <= lastID) return;
+    lastID = m.id;
+    localStorage.setItem(sinceKey, String(lastID));
+    var div = document.createElement("div");
+    div.className = "msg " + (m.role === "visitor" ? "visitor" : m.role === "agent" ? "agent" : "system");
+    div.textContent = m.text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function online(on) {
+    document.querySelector("header .dot").className = "dot" + (on ? " on" : "");
+    document.querySelector(".status").textContent = on ? "客服在线" : "留言模式";
+    if (!on && !askedCapture && !localStorage.getItem(tokenKey + ".email")) {
+      askedCapture = true;
+      document.getElementById("capture").classList.add("show");
+    }
+  }
+
+  function ensure() {
+    return api("/chat/api/session", { method: "POST", body: { token: token, page: location.href } })
+      .then(function (d) {
+        token = d.token;
+        localStorage.setItem(tokenKey, token);
+        online(d.agent_online);
+        (d.messages || []).forEach(append);
+      });
+  }
+
+  function poll() {
+    if (!token) return ensure().catch(function () {});
+    api("/chat/api/poll?token=" + encodeURIComponent(token) + "&since=" + lastID)
+      .then(function (d) { online(d.agent_online); (d.messages || []).forEach(append); })
+      .catch(function (err) {
+        if (String(err.message) === "session not found") {
+          token = ""; lastID = 0;
+          localStorage.removeItem(tokenKey); localStorage.removeItem(sinceKey);
+          ensure().catch(function () {});
+        }
+      });
+  }
+
+  document.getElementById("compose").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var box = document.getElementById("text");
+    var text = box.value.trim();
+    if (!text) return;
+    ensure()
+      .then(function () { return api("/chat/api/message", { method: "POST", body: { token: token, text: text } }); })
+      .then(function (d) { box.value = ""; append(d.message); online(d.agent_online); })
+      .catch(function () { box.value = text; });
+  });
+
+  document.getElementById("text").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById("compose").requestSubmit();
+    }
+  });
+
+  document.getElementById("capture").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var note = this.querySelector("small");
+    var fd = new FormData(this);
+    ensure()
+      .then(function () {
+        return api("/chat/api/email", {
+          method: "POST",
+          body: { token: token, name: fd.get("name") || "", email: fd.get("email") || "" },
+        });
+      })
+      .then(function () {
+        localStorage.setItem(tokenKey + ".email", "1");
+        note.textContent = "已记录，感谢！";
+        setTimeout(function () { document.getElementById("capture").classList.remove("show"); }, 1200);
+      })
+      .catch(function (err) { note.textContent = "提交失败：" + err.message; });
+  });
+
+  ensure().catch(function () {});
+  setInterval(poll, 4000);
+})();
+</script>
+</body>
+</html>

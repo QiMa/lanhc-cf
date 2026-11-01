@@ -95,15 +95,18 @@ func buildMessage(cfg smtpConfig, data formData) ([]byte, error) {
 	if subject == "" {
 		subject = "网站表单提交"
 	}
+	return buildRawMessage(cfg, subject, body.String()), nil
+}
 
+func buildRawMessage(cfg smtpConfig, subject, body string) []byte {
 	var msg bytes.Buffer
 	fmt.Fprintf(&msg, "From: %s\r\n", cfg.User)
 	fmt.Fprintf(&msg, "To: %s\r\n", cfg.To)
 	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
 	fmt.Fprintf(&msg, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&msg, "Content-Type: text/html; charset=UTF-8\r\n")
-	fmt.Fprintf(&msg, "\r\n%s", body.String())
-	return msg.Bytes(), nil
+	fmt.Fprintf(&msg, "\r\n%s", body)
+	return msg.Bytes()
 }
 
 func sendMail(cfg smtpConfig, msg []byte) error {
@@ -193,12 +196,20 @@ func handleForm(cfg smtpConfig) http.HandlerFunc {
 func main() {
 	cfg := loadSMTP()
 
-	http.HandleFunc("/", handleForm(cfg))
-	http.Handle("/src/", http.StripPrefix("/src/", http.FileServer(http.Dir("src"))))
+	store, err := OpenChatStore(env("CHAT_DATA_DIR", "data"))
+	if err != nil {
+		log.Fatal("failed to open chat store: ", err)
+	}
+	chat := newChatService(store, cfg)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", handleForm(cfg))
+	mux.Handle("/src/", http.StripPrefix("/src/", http.FileServer(http.Dir("src"))))
+	chat.Register(mux)
 
 	addr := env("LISTEN_ADDR", ":80")
 	log.Println("lanhc-cf listening on", addr, "smtp:", cfg.Host, cfg.Port, "user:", cfg.User, "to:", cfg.To)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
 }
