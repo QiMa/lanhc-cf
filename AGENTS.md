@@ -14,6 +14,8 @@
   部署时需注入 `CHAT_ADMIN_PASSWORD`、`CHAT_COOKIE_KEY`、`CHAT_ALLOWED_ORIGINS`。
 - AI 兜底走 `CHAT_AI_*` 环境变量，默认调用同网络的 `airgap:8080`；话术事实源是
   `chatui/kb.md`，改知识只改这个文件。价格/合同类问题必须转人工，不要放开关键词拦截。
+- 访问统计自托管在 `/stats/*`（`STATS_DATA_DIR/stats.jsonl`，看板走 `CHAT_ADMIN_PASSWORD`），
+  已停用 counter.dev；不要再往页面里加第三方统计。
 - 与 `lanhc-hugo` 表单提交配合：表单来源字段由 hugo 透传。
 
 ## 关系

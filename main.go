@@ -202,10 +202,16 @@ func main() {
 	}
 	chat := newChatService(store, cfg)
 
+	stats, err := newStatsService(env("STATS_DATA_DIR", env("CHAT_DATA_DIR", "data")))
+	if err != nil {
+		log.Fatal("failed to open stats store: ", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleForm(cfg))
 	mux.Handle("/src/", http.StripPrefix("/src/", http.FileServer(http.Dir("src"))))
 	chat.Register(mux)
+	stats.Register(mux)
 
 	addr := env("LISTEN_ADDR", ":80")
 	log.Println("lanhc-cf listening on", addr, "smtp:", cfg.Host, cfg.Port, "user:", cfg.User, "to:", cfg.To)

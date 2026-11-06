@@ -38,6 +38,26 @@
   在线时不再触发离线邮件通知。
 - 访客侧仅允许白名单 Origin 的跨域请求，写接口按 IP/会话做了限流。
 
+## 访问统计
+
+自托管页面统计，替代 counter.dev（该服务长期返回 400，只有跨域往返没有数据）。
+不写 cookie、不存 IP 与 UA，只记录路径、来源域名、屏幕尺寸、会话 ID 与语言。
+
+| 路径 | 说明 |
+| --- | --- |
+| `GET /stats/collect.js` | 埋点脚本，站点只需一行 `<script src="https://cf.lanhc.com/stats/collect.js" defer></script>` |
+| `POST /stats/api/collect` | 接收 `{p,r,s,sid,l}`（路径、referrer、屏幕、会话 ID、语言），成功 204 |
+| `GET /stats/api/summary?days=N` | 汇总 JSON，`Authorization: Bearer <CHAT_ADMIN_PASSWORD>`；默认 7 天，上限 90 |
+| `GET /stats/` | 看板（口令登录，`noindex`） |
+
+实现要点：
+
+- 事件以 JSONL 追加写入 `STATS_DATA_DIR/stats.jsonl`，进程内按天聚合，保留 400 天，
+  启动时压缩过期行；单日去重会话上限 20000。
+- 写入接口有 Origin 白名单（复用 `CHAT_ALLOWED_ORIGINS`，可用 `STATS_ALLOWED_ORIGINS` 覆盖）、
+  2 KB 请求体上限与 120 次/分/IP 限流。
+- 时间按容器本地时区归日，跨时区访客的会话统一落到同一日。
+
 ## 配置
 
 通过环境变量注入，无内置密钥：
@@ -57,6 +77,9 @@
 | `CHAT_AI_BASE_URL` | 空 | 模型网关地址，如 `http://airgap:8080`；留空则禁用 AI 兜底 |
 | `CHAT_AI_KEY` | 空 | AirGap 签发的 `ag-` 企业密钥 |
 | `CHAT_AI_MODEL` | `huayu-hermes-flash` | 兜底使用的模型 |
+| `STATS_DATA_DIR` | 同 `CHAT_DATA_DIR` | 访问统计日志目录（需挂载持久卷） |
+| `STATS_ENDPOINT` | `https://cf.lanhc.com/stats/api/collect` | 埋点脚本上报地址，换域名时改这里 |
+| `STATS_ALLOWED_ORIGINS` | 同 `CHAT_ALLOWED_ORIGINS` | 允许上报的站点来源，空格分隔 |
 
 ## AI 兜底
 
